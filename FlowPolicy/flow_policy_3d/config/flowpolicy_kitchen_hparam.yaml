@@ -1,0 +1,31 @@
+# @package _global_
+# Template for hyperparameter search trials (used by kitchen_hparam_search.py).
+defaults:
+  - flowpolicy_kitchen
+  - _self_
+
+name: train_flowpolicy_kitchen_hparam
+
+logging:
+  project: flowpolicy-kitchen-hparam
+  group: kitchen_hparam_search
+
+# Search space reference (sampled in hparam_search.py, not by Hydra sweeper):
+#   num_epochs: [500, 1000, 3000, 5000]
+#   learning_rate: [1e-3, 5e-4, 1e-4, 1e-5]
+#   batch_size: [64, 128, 256, 512]
+#   hidden_dim / encoder_output_dim: [128, 256, 512, 1024]
+#   time_embedding_dim (diffusion_step_embed_dim): [128, 256, 512, 1024]
+#   num_segments (K): [1, 2, 3, 4]
+#   epsilon: [1e-4, 1e-3, 1e-2, 1]
+#   delta_t: [1e-4, 1e-3, 1e-2, 1]
+#   n_action_steps: [2, 4, 6, 8]
+#   n_obs_steps: [4, 6, 8, 16]
+# Experiment seeds (training + eval): [0, 42, 101]
+# Eval after train: 50 episodes x 3 seeds -> mean ± std trade_off
+
+hparam_eval:
+  eval_episodes: 50
+  eval_seeds: [0, 42, 101]
+  train_seeds: [0, 42, 101]
+  metric_primary: trade_off_mean

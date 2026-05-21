@@ -1,0 +1,72 @@
+# @package _global_
+defaults:
+  - flowpolicy
+  - override /task: kitchen_complete
+  - _self_
+
+name: train_flowpolicy_kitchen
+exp_name: "kitchen_complete"
+
+horizon: 8
+n_obs_steps: 2
+n_action_steps: 4
+
+policy:
+  obs_encoder_type: state_only
+  encoder_output_dim: 512
+  state_mlp_size: [512, 512]
+  diffusion_step_embed_dim: 256
+  down_dims: [512, 1024, 2048]
+  use_point_crop: false
+  pointnet_type: mlp
+  Conditional_ConsistencyFM:
+    eps: 1.0e-2
+    num_segments: 2
+    boundary: 1
+    delta: 1.0e-2
+    alpha: 1.0e-5
+    num_inference_step: 1
+
+dataloader:
+  batch_size: 128
+  num_workers: 4
+
+val_dataloader:
+  batch_size: 128
+  num_workers: 4
+
+optimizer:
+  lr: 1.0e-4
+
+training:
+  seed: 0  # experiment seeds: [0, 42, 101] via kitchen_run_experiment.sh
+  num_epochs: 3000
+  rollout_every: 500
+  val_every: 1
+  run_validation: true
+  use_early_stopping: true
+  checkpoint_every: 500
+  debug: false
+
+early_stopping:
+  min_epochs: 1000
+  val_loss_patience: 400
+  val_loss_min_delta: 5.0e-5
+  val_loss_ema_alpha: 0.05
+  success_rate_check_interval: 500
+  success_rate_patience: 2
+  success_rate_min_delta: 2.0
+  success_rate_eval_episodes: 20
+
+checkpoint:
+  save_ckpt: true
+
+logging:
+  project: flowpolicy-kitchen
+  mode: online
+
+# Full experiment: bash scripts/kitchen_run_experiment.sh N 0
+#   Phase 1 baseline (early stop) x seeds [0,42,101]
+#   Phase 2 random search (early stop) x seeds
+#   Phase 3 plots: scripts/kitchen_plot_results.py
+# Results: data/hparam_search/baseline_results.jsonl, results.jsonl, plots/

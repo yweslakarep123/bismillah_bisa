@@ -1,0 +1,10 @@
+{
+  "n_rows": 3,
+  "plots": [
+    "success_rate_vs_latency.png",
+    "tradeoff_vs_val_loss.png",
+    "subtask_success_rates.png",
+    "tradeoff_vs_hparams.png",
+    "latency_vs_num_segments.png"
+  ]
+}

@@ -1,0 +1,36 @@
+name: kitchen_complete
+
+task_name: kitchen_complete
+
+shape_meta: &shape_meta
+  obs:
+    agent_pos:
+      shape: [59]
+      type: low_dim
+  action:
+    shape: [9]
+
+env_runner:
+  _target_: flow_policy_3d.env_runner.kitchen_runner.KitchenRunner
+  eval_episodes: 50
+  max_steps: 280
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  tasks_to_complete:
+    - microwave
+    - kettle
+    - light switch
+    - slide cabinet
+  n_tasks: 4
+
+dataset:
+  _target_: flow_policy_3d.dataset.kitchen_dataset.KitchenDataset
+  zarr_path: data/kitchen_complete.zarr
+  episode_mask_path: data/kitchen_complete_splits.json
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  split: train
+  augment_obs: true
+  obs_noise_std: 0.01
