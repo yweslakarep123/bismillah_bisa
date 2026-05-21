@@ -35,8 +35,10 @@ def take_last_n(x, n):
     
     if isinstance(x[0], torch.Tensor):
         return torch.stack(x[-n:])
-    else:
+    try:
         return np.array(x[-n:])
+    except ValueError:
+        return np.asarray(x[-n:], dtype=object)
 
 
 

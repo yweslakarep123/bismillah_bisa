@@ -60,6 +60,9 @@ early_stopping:
 
 checkpoint:
   save_ckpt: true
+  save_last_ckpt: false
+  topk:
+    k: 0
 
 logging:
   project: flowpolicy-kitchen

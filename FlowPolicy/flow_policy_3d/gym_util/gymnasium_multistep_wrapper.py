@@ -36,7 +36,11 @@ def take_last_n(x, n):
     n = min(len(x), n)
     if isinstance(x[0], torch.Tensor):
         return torch.stack(x[-n:])
-    return np.array(x[-n:])
+    try:
+        return np.array(x[-n:])
+    except ValueError:
+        # Ragged per-step values (e.g. variable-length episode_task_completions)
+        return np.asarray(x[-n:], dtype=object)
 
 
 def dict_take_last_n(x, n):

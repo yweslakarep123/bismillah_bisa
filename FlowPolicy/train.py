@@ -331,15 +331,20 @@ class TrainFlowPolicyWorkspace:
                                 early_stop_manager.state.val_loss_ema
                             )
                             if improved:
-                                best_val_ckpt_path = pathlib.Path(
-                                    self.output_dir
-                                ).joinpath(
-                                    "checkpoints",
-                                    f"best_val_loss_epoch{self.epoch:04d}.ckpt",
+                                ckpt_dir = pathlib.Path(self.output_dir).joinpath(
+                                    "checkpoints"
+                                )
+                                best_val_ckpt_path = ckpt_dir.joinpath(
+                                    "best_val_loss.ckpt"
                                 )
                                 self.save_checkpoint(path=best_val_ckpt_path)
+                                for old in ckpt_dir.glob(
+                                    "best_val_loss_epoch*.ckpt"
+                                ):
+                                    old.unlink(missing_ok=True)
                                 cprint(
-                                    f"Saved best val checkpoint: {best_val_ckpt_path}",
+                                    f"Saved best val checkpoint (overwrite): "
+                                    f"{best_val_ckpt_path}",
                                     "green",
                                 )
 
@@ -527,10 +532,13 @@ class TrainFlowPolicyWorkspace:
         ckpt_dir = pathlib.Path(self.output_dir).joinpath("checkpoints")
         if not ckpt_dir.is_dir():
             return None
-        best = list(ckpt_dir.glob("best_val_loss_epoch*.ckpt"))
-        if not best:
+        fixed = ckpt_dir / "best_val_loss.ckpt"
+        if fixed.is_file():
+            return fixed
+        legacy = list(ckpt_dir.glob("best_val_loss_epoch*.ckpt"))
+        if not legacy:
             return None
-        return max(best, key=lambda p: p.stat().st_mtime)
+        return max(legacy, key=lambda p: p.stat().st_mtime)
 
     def get_checkpoint_path(self, tag='latest'):
         if tag=='latest':

@@ -91,6 +91,9 @@ def run_training(
 
 def find_best_checkpoint(run_dir: Path) -> Path:
     ckpt_dir = run_dir / "checkpoints"
+    fixed = ckpt_dir / "best_val_loss.ckpt"
+    if fixed.is_file():
+        return fixed
     best = list(ckpt_dir.glob("best_val_loss_epoch*.ckpt"))
     if best:
         return max(best, key=lambda p: p.stat().st_mtime)
