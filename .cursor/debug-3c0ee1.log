@@ -1,0 +1,1 @@
+{"sessionId": "3c0ee1", "runId": "post-fix", "hypothesisId": "H1", "location": "verify_script", "message": "output_dir resolves", "data": {"output_dir": "/tmp/test_run", "_output_dir": "/tmp/test_run"}, "timestamp": 1779415469269}

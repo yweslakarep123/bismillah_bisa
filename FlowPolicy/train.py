@@ -103,6 +103,8 @@ class TrainFlowPolicyWorkspace:
         use_early_stopping = cfg.training.get("use_early_stopping", False)
         early_stop_manager = None
         best_val_ckpt_path = None
+        best_sr_ckpt_path = None
+        save_best_val_ckpt = cfg.checkpoint.get("save_best_val_ckpt", False)
         if use_early_stopping and hasattr(cfg, "early_stopping"):
             es_cfg = OmegaConf.to_container(cfg.early_stopping, resolve=True)
             early_stop_manager = EarlyStoppingManager(
@@ -284,6 +286,25 @@ class TrainFlowPolicyWorkspace:
                 runner_log = env_runner.run(policy)
                 t4 = time.time()
                 step_log.update(runner_log)
+                if early_stop_manager is not None:
+                    sr_rollout = runner_log.get(
+                        "success_rate", runner_log.get("test_mean_score", 0)
+                    )
+                    if early_stop_manager.update_success_rate(
+                        self.epoch, sr_rollout
+                    ):
+                        ckpt_dir = pathlib.Path(self.output_dir).joinpath(
+                            "checkpoints"
+                        )
+                        best_sr_ckpt_path = ckpt_dir.joinpath(
+                            "best_success_rate.ckpt"
+                        )
+                        self.save_checkpoint(path=best_sr_ckpt_path)
+                        cprint(
+                            f"Saved best success-rate checkpoint "
+                            f"({sr_rollout:.2f}%): {best_sr_ckpt_path}",
+                            "green",
+                        )
 
             # lightweight success-rate check for early stopping
             if (
@@ -297,7 +318,19 @@ class TrainFlowPolicyWorkspace:
                     policy, eval_episodes=es_cfg.success_rate_eval_episodes
                 )
                 sr = light_log.get("success_rate", light_log.get("test_mean_score", 0))
-                early_stop_manager.update_success_rate(self.epoch, sr)
+                if early_stop_manager.update_success_rate(self.epoch, sr):
+                    ckpt_dir = pathlib.Path(self.output_dir).joinpath(
+                        "checkpoints"
+                    )
+                    best_sr_ckpt_path = ckpt_dir.joinpath(
+                        "best_success_rate.ckpt"
+                    )
+                    self.save_checkpoint(path=best_sr_ckpt_path)
+                    cprint(
+                        f"Saved best success-rate checkpoint "
+                        f"({sr:.2f}%): {best_sr_ckpt_path}",
+                        "green",
+                    )
                 step_log["light_eval_success_rate"] = sr
                 step_log.update(
                     {f"light_{k}": v for k, v in light_log.items() if k != "test_mean_score"}
@@ -330,7 +363,7 @@ class TrainFlowPolicyWorkspace:
                             step_log['val_loss_ema'] = (
                                 early_stop_manager.state.val_loss_ema
                             )
-                            if improved:
+                            if improved and save_best_val_ckpt:
                                 ckpt_dir = pathlib.Path(self.output_dir).joinpath(
                                     "checkpoints"
                                 )
@@ -404,11 +437,14 @@ class TrainFlowPolicyWorkspace:
                     f"Early stopping triggered at epoch {self.epoch}",
                     "magenta",
                 )
-                if best_val_ckpt_path is not None and pathlib.Path(
-                    best_val_ckpt_path
-                ).is_file():
-                    self.load_checkpoint(path=best_val_ckpt_path)
-                    cprint(f"Loaded best checkpoint {best_val_ckpt_path}", "magenta")
+                resume_ckpt = self._get_best_success_checkpoint_path()
+                if resume_ckpt is None:
+                    resume_ckpt = best_sr_ckpt_path
+                if resume_ckpt is None and best_val_ckpt_path is not None:
+                    resume_ckpt = best_val_ckpt_path
+                if resume_ckpt is not None and pathlib.Path(resume_ckpt).is_file():
+                    self.load_checkpoint(path=resume_ckpt)
+                    cprint(f"Loaded best checkpoint {resume_ckpt}", "magenta")
                 wandb_run.log(step_log, step=self.global_step)
                 break
 
@@ -419,13 +455,27 @@ class TrainFlowPolicyWorkspace:
             self.epoch += 1
             del step_log
 
-        # Restore best val-loss weights (early stop or full budget; §6.5 doc)
-        if use_early_stopping and best_val_ckpt_path is not None:
-            best_path = pathlib.Path(best_val_ckpt_path)
-            if best_path.is_file():
-                self.load_checkpoint(path=best_path)
+        # Restore best env success-rate weights (fallback: val loss if enabled)
+        if use_early_stopping:
+            resume_ckpt = self._get_best_success_checkpoint_path()
+            if resume_ckpt is None:
+                resume_ckpt = best_sr_ckpt_path
+            if resume_ckpt is None and save_best_val_ckpt and best_val_ckpt_path:
+                resume_ckpt = best_val_ckpt_path
+            if resume_ckpt is None:
+                ckpt_dir = pathlib.Path(self.output_dir).joinpath("checkpoints")
+                ckpt_dir.mkdir(parents=True, exist_ok=True)
+                resume_ckpt = ckpt_dir.joinpath("best_success_rate.ckpt")
+                self.save_checkpoint(path=resume_ckpt)
                 cprint(
-                    f"Training finished; loaded best val checkpoint {best_path}",
+                    "No success-rate improvement during training; "
+                    f"saved final epoch to {resume_ckpt}",
+                    "yellow",
+                )
+            elif pathlib.Path(resume_ckpt).is_file():
+                self.load_checkpoint(path=resume_ckpt)
+                cprint(
+                    f"Training finished; loaded best checkpoint {resume_ckpt}",
                     "magenta",
                 )
 
@@ -481,10 +531,15 @@ class TrainFlowPolicyWorkspace:
         
     @property
     def output_dir(self):
-        output_dir = self._output_dir
-        if output_dir is None:
-            output_dir = HydraConfig.get().runtime.output_dir
-        return output_dir
+        if self._output_dir is not None:
+            return self._output_dir
+        try:
+            return HydraConfig.get().runtime.output_dir
+        except ValueError:
+            raise ValueError(
+                "output_dir is not set and Hydra is not active. "
+                "Pass output_dir=... to TrainFlowPolicyWorkspace, or run via hydra."
+            ) from None
     
 
     def save_checkpoint(self, path=None, tag='latest', 
@@ -528,6 +583,15 @@ class TrainFlowPolicyWorkspace:
         torch.cuda.empty_cache()
         return str(path.absolute())
     
+    def _get_best_success_checkpoint_path(self):
+        ckpt_dir = pathlib.Path(self.output_dir).joinpath("checkpoints")
+        if not ckpt_dir.is_dir():
+            return None
+        fixed = ckpt_dir / "best_success_rate.ckpt"
+        if fixed.is_file():
+            return fixed
+        return None
+
     def _get_best_val_checkpoint_path(self):
         ckpt_dir = pathlib.Path(self.output_dir).joinpath("checkpoints")
         if not ckpt_dir.is_dir():

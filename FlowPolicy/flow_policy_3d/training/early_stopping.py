@@ -9,7 +9,7 @@ class EarlyStoppingState:
     val_loss_ema: Optional[float] = None
     best_val_loss_ema: float = float("inf")
     val_loss_patience_counter: int = 0
-    best_success_rate: float = -1.0
+    best_success_rate: float = 0.0
     success_rate_patience_counter: int = 0
     should_stop: bool = False
     signal_val_loss: bool = False
@@ -58,18 +58,22 @@ class EarlyStoppingManager:
             st.signal_val_loss = True
         return improved
 
-    def update_success_rate(self, epoch: int, success_rate: float):
+    def update_success_rate(self, epoch: int, success_rate: float) -> bool:
+        """Returns True when success rate improves by at least min_delta (pp)."""
         cfg = self.config
         st = self.state
         if epoch < cfg.min_epochs:
-            return
-        if success_rate - st.best_success_rate >= cfg.success_rate_min_delta:
+            return False
+        improved = False
+        if success_rate > st.best_success_rate + cfg.success_rate_min_delta:
             st.best_success_rate = success_rate
             st.success_rate_patience_counter = 0
+            improved = True
         else:
             st.success_rate_patience_counter += 1
         if st.success_rate_patience_counter >= cfg.success_rate_patience:
             st.signal_success_rate = True
+        return improved
 
     def should_run_success_check(self, epoch: int) -> bool:
         cfg = self.config

@@ -91,6 +91,9 @@ def run_training(
 
 def find_best_checkpoint(run_dir: Path) -> Path:
     ckpt_dir = run_dir / "checkpoints"
+    sr_ckpt = ckpt_dir / "best_success_rate.ckpt"
+    if sr_ckpt.is_file():
+        return sr_ckpt
     fixed = ckpt_dir / "best_val_loss.ckpt"
     if fixed.is_file():
         return fixed
@@ -125,15 +128,20 @@ def eval_one_seed(
     cfg.task.env_runner.n_action_steps = hparams["n_action_steps"]
     cfg.task.env_runner.eval_episodes = eval_episodes
 
-    ws = TrainFlowPolicyWorkspace(cfg, output_dir=str(ckpt_path.parent.parent))
-    ws.load_payload(payload)
+    run_dir = str(ckpt_path.parent.parent)
+    ws = TrainFlowPolicyWorkspace(cfg, output_dir=run_dir)
+    pickle_keys = [
+        k for k in payload.get("pickles", {}) if k != "_output_dir"
+    ]
+    ws.load_payload(payload, include_keys=pickle_keys)
+    ws._output_dir = run_dir
     policy = ws.ema_model if cfg.training.use_ema and ws.ema_model else ws.model
     device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
     policy.to(device)
     policy.eval()
 
     runner = KitchenRunner(
-        output_dir=ws.output_dir,
+        output_dir=run_dir,
         eval_episodes=eval_episodes,
         n_obs_steps=hparams["n_obs_steps"],
         n_action_steps=hparams["n_action_steps"],

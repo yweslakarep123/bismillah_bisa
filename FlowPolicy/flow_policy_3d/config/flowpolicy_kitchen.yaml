@@ -55,11 +55,12 @@ early_stopping:
   val_loss_ema_alpha: 0.05
   success_rate_check_interval: 500
   success_rate_patience: 2
-  success_rate_min_delta: 2.0
+  success_rate_min_delta: 0.5
   success_rate_eval_episodes: 20
 
 checkpoint:
   save_ckpt: true
+  save_best_val_ckpt: false
   save_last_ckpt: false
   topk:
     k: 0
