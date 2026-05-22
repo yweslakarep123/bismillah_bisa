@@ -15,7 +15,7 @@
     "filters": null,
     "order": "C",
     "shape": [
-        4209,
+        3929,
         59
     ],
     "zarr_format": 2

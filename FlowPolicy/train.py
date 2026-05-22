@@ -287,11 +287,8 @@ class TrainFlowPolicyWorkspace:
                 t4 = time.time()
                 step_log.update(runner_log)
                 if early_stop_manager is not None:
-                    sr_rollout = runner_log.get(
-                        "success_rate", runner_log.get("test_mean_score", 0)
-                    )
                     if early_stop_manager.update_success_rate(
-                        self.epoch, sr_rollout
+                        self.epoch, runner_log
                     ):
                         ckpt_dir = pathlib.Path(self.output_dir).joinpath(
                             "checkpoints"
@@ -300,9 +297,11 @@ class TrainFlowPolicyWorkspace:
                             "best_success_rate.ckpt"
                         )
                         self.save_checkpoint(path=best_sr_ckpt_path)
+                        improved = early_stop_manager.state.last_improved_success_keys
                         cprint(
                             f"Saved best success-rate checkpoint "
-                            f"({sr_rollout:.2f}%): {best_sr_ckpt_path}",
+                            f"({early_stop_manager.format_success_summary()}, "
+                            f"improved={improved}): {best_sr_ckpt_path}",
                             "green",
                         )
 
@@ -318,7 +317,7 @@ class TrainFlowPolicyWorkspace:
                     policy, eval_episodes=es_cfg.success_rate_eval_episodes
                 )
                 sr = light_log.get("success_rate", light_log.get("test_mean_score", 0))
-                if early_stop_manager.update_success_rate(self.epoch, sr):
+                if early_stop_manager.update_success_rate(self.epoch, light_log):
                     ckpt_dir = pathlib.Path(self.output_dir).joinpath(
                         "checkpoints"
                     )
@@ -326,17 +325,25 @@ class TrainFlowPolicyWorkspace:
                         "best_success_rate.ckpt"
                     )
                     self.save_checkpoint(path=best_sr_ckpt_path)
+                    improved = early_stop_manager.state.last_improved_success_keys
                     cprint(
                         f"Saved best success-rate checkpoint "
-                        f"({sr:.2f}%): {best_sr_ckpt_path}",
+                        f"({early_stop_manager.format_success_summary()}, "
+                        f"improved={improved}): {best_sr_ckpt_path}",
                         "green",
                     )
                 step_log["light_eval_success_rate"] = sr
                 step_log.update(
                     {f"light_{k}": v for k, v in light_log.items() if k != "test_mean_score"}
                 )
+                subtask_sr = ", ".join(
+                    f"k{k}={light_log[f'success_rate_k{k}']:.1f}%"
+                    for k in range(1, 5)
+                    if f"success_rate_k{k}" in light_log
+                )
                 cprint(
-                    f"[EarlyStop] epoch {self.epoch} light success_rate={sr:.2f}%",
+                    f"[EarlyStop] epoch {self.epoch} "
+                    f"success_rate={sr:.2f}% ({subtask_sr})",
                     "cyan",
                 )
                 
@@ -489,6 +496,7 @@ class TrainFlowPolicyWorkspace:
                 "best_val_loss_ema": st.best_val_loss_ema,
                 "val_loss_ema": st.val_loss_ema,
                 "best_light_success_rate": st.best_success_rate,
+                "best_success_rates": st.best_success_rates,
                 "signal_val_loss": st.signal_val_loss,
                 "signal_success_rate": st.signal_success_rate,
             }

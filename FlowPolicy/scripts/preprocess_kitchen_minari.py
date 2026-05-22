@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Convert Minari D4RL/kitchen/complete-v2 to zarr for FlowPolicy training."""
+"""Convert Minari D4RL/kitchen/complete-v2 to zarr for FlowPolicy training.
+
+Follows the DAgger4Robotics preprocessing pattern:
+https://github.com/cybernetic-m/DAgger4Robotics/blob/main/utils/preprocess_dataset.py
+
+Extended from a single microwave task to four sequential tasks:
+microwave -> kettle -> light switch -> slide cabinet.
+"""
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 import minari
@@ -11,13 +17,86 @@ import numpy as np
 import zarr
 from termcolor import cprint
 
+# Task order in the expert complete-v2 demonstrations.
+TASK_ORDER = ["microwave", "kettle", "light switch", "slide cabinet"]
+
+# DAgger4Robotics uses this tolerance for scalar achieved-goal stability.
+STABILITY_TOLERANCE = 1e-20
+
+# FrankaKitchen env completion threshold (kitchen_env.BONUS_THRESH).
+BONUS_THRESH = 0.3
+
+
+def _is_stable(achieved, step_index: int) -> bool:
+    """True when achieved goal stops changing between step_index and step_index+1."""
+    ag = np.asarray(achieved)
+    if ag.ndim == 1:
+        return abs(ag[step_index + 1] - ag[step_index]) < STABILITY_TOLERANCE
+    return np.max(np.abs(ag[step_index + 1] - ag[step_index])) < STABILITY_TOLERANCE
+
+
+def _is_near_goal(achieved, desired, step_index: int) -> bool:
+    """True when achieved goal is within FrankaKitchen completion distance."""
+    ag_i = np.asarray(achieved[step_index]).flatten()
+    desired_arr = np.asarray(desired)
+    if desired_arr.ndim > 1:
+        dg_i = desired_arr[step_index].flatten()
+    else:
+        dg_i = desired_arr.flatten()
+    return float(np.linalg.norm(ag_i - dg_i)) < BONUS_THRESH
+
+
+def _is_task_complete(task: str, achieved, desired, step_index: int) -> bool:
+    """Detect completion for the current sequential task."""
+    if task == "microwave":
+        # DAgger4Robotics: microwave completion via achieved-goal stability.
+        return _is_stable(achieved, step_index)
+    # Vector / later scalar tasks: use the same threshold as FrankaKitchen-v1.
+    return _is_near_goal(achieved, desired, step_index)
+
 
 def extract_episode(episode):
-    obs = np.asarray(episode.observations["observation"], dtype=np.float32)
-    act = np.asarray(episode.actions, dtype=np.float32)
-    # align off-by-one: actions are one step shorter than observations
-    obs = obs[: len(act)]
-    return obs, act
+    """Extract obs/action pairs until all four tasks are completed.
+
+    Mirrors the DAgger4Robotics loop: append each step, then stop once the
+    final task in TASK_ORDER is finished.
+    """
+    observation_list = episode.observations["observation"]
+    actions_list = episode.actions
+    achieved = episode.observations["achieved_goal"]
+    desired = episode.observations["desired_goal"]
+
+    obs_chunks = []
+    act_chunks = []
+    completed_tasks = []
+
+    n_actions = len(actions_list)
+    for step_index in range(n_actions - 1):
+        obs_chunks.append(
+            np.asarray(observation_list[step_index], dtype=np.float32)
+        )
+        act_chunks.append(np.asarray(actions_list[step_index], dtype=np.float32))
+
+        if len(completed_tasks) < len(TASK_ORDER):
+            current_task = TASK_ORDER[len(completed_tasks)]
+            if _is_task_complete(
+                current_task,
+                achieved[current_task],
+                desired[current_task],
+                step_index,
+            ):
+                completed_tasks.append(current_task)
+                if len(completed_tasks) >= len(TASK_ORDER):
+                    break
+
+    if not obs_chunks:
+        raise ValueError(
+            f"Episode {getattr(episode, 'id', '?')} produced no transitions."
+        )
+
+    obs = np.stack(obs_chunks, axis=0)
+    act = np.stack(act_chunks, axis=0)
+    return obs, act, completed_tasks
 
 
 def main():
@@ -63,13 +142,21 @@ def main():
 
     for ep_idx in range(n_episodes):
         ep = dataset[ep_idx]
-        obs, act = extract_episode(ep)
+        obs, act, completed_tasks = extract_episode(ep)
+        if len(completed_tasks) != len(TASK_ORDER):
+            cprint(
+                f"Warning: episode {ep_idx} completed {len(completed_tasks)}/"
+                f"{len(TASK_ORDER)} tasks: {completed_tasks}",
+                "yellow",
+            )
+
         state_arrays.append(obs)
         action_arrays.append(act)
         total_count += len(act)
         episode_ends.append(total_count)
         cprint(
-            f"Episode {ep_idx}: {len(act)} steps, obs_dim={obs.shape[1]}",
+            f"Episode {ep_idx}: {len(act)} steps (raw {len(ep.actions)}), "
+            f"obs_dim={obs.shape[1]}, tasks={completed_tasks}",
             "cyan",
         )
 
@@ -83,12 +170,18 @@ def main():
         "val_episode_ids": val_ids,
         "test_episode_ids": test_ids,
         "n_episodes": n_episodes,
+        "task_order": TASK_ORDER,
+        "preprocess": {
+            "microwave_completion": "achieved_goal_stability",
+            "other_tasks_completion": f"distance_lt_{BONUS_THRESH}",
+        },
     }
     with open(splits_path, "w") as f:
         json.dump(splits, f, indent=2)
 
     if zarr_path.exists():
         import shutil
+
         shutil.rmtree(zarr_path)
 
     zarr_root = zarr.group(str(zarr_path))

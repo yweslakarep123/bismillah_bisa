@@ -57,6 +57,7 @@ early_stopping:
   success_rate_patience: 2
   success_rate_min_delta: 0.5
   success_rate_eval_episodes: 20
+  track_subtask_success_rates: true
 
 checkpoint:
   save_ckpt: true

@@ -25,5 +25,15 @@
   "test_episode_ids": [
     18
   ],
-  "n_episodes": 19
+  "n_episodes": 19,
+  "task_order": [
+    "microwave",
+    "kettle",
+    "light switch",
+    "slide cabinet"
+  ],
+  "preprocess": {
+    "microwave_completion": "achieved_goal_stability",
+    "other_tasks_completion": "distance_lt_0.3"
+  }
 }
