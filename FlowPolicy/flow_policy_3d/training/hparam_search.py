@@ -103,6 +103,7 @@ def hparams_to_hydra_overrides(hparams: Dict[str, Any], run_dir: str) -> List[st
         "checkpoint.save_ckpt=true",
         "training.use_early_stopping=true",
         "training.run_validation=true",
+        "early_stopping.track_subtask_success_rates=true",
     ]
     return overrides
 
@@ -116,6 +117,11 @@ _METRIC_KEYS = [
     "success_rate_k3",
     "success_rate_k4",
     "best_val_loss_ema",
+    "best_light_success_rate",
+    "best_success_rate_k1",
+    "best_success_rate_k2",
+    "best_success_rate_k3",
+    "best_success_rate_k4",
     "stopped_epoch",
 ]
 
@@ -156,17 +162,24 @@ def load_results_jsonl(path: Path) -> List[Dict[str, Any]]:
 
 
 def read_training_summary(run_dir: Path) -> Dict[str, float]:
-    """Read val-loss / epoch summary written by train.py."""
+    """Read val-loss / early-stop summary written by train.py."""
     summary_path = run_dir / "training_summary.json"
     if not summary_path.is_file():
         return {}
     with open(summary_path) as f:
         data = json.load(f)
-    return {
-        k: float(v)
-        for k, v in data.items()
-        if isinstance(v, (int, float))
-    }
+
+    out: Dict[str, float] = {}
+    for key, value in data.items():
+        if isinstance(value, (int, float)):
+            out[key] = float(value)
+        elif key == "best_success_rates" and isinstance(value, dict):
+            for sub_key, sub_val in value.items():
+                if sub_key == "success_rate":
+                    out["best_light_success_rate"] = float(sub_val)
+                elif sub_key.startswith("success_rate_k"):
+                    out[f"best_{sub_key}"] = float(sub_val)
+    return out
 
 
 def save_trial_result(

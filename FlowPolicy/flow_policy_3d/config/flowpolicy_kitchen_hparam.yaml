@@ -23,6 +23,10 @@ logging:
 #   n_obs_steps: [4, 6, 8, 16]
 # Experiment seeds (training + eval): [0, 42, 101]
 # Eval after train: 50 episodes x 3 seeds -> mean ± std trade_off
+# Early stopping tracks overall + per-subtask success (success_rate_k1..k4).
+
+early_stopping:
+  track_subtask_success_rates: true
 
 hparam_eval:
   eval_episodes: 50
